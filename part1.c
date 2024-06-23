@@ -5,7 +5,7 @@
 
 void child_process_1(char *child1_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        fprintf(output, "%s\n", child1_message);
+        fprintf(output, "%s", child1_message);
         
     }
     exit(0);
@@ -13,14 +13,14 @@ void child_process_1(char *child1_message, int num, FILE *output) {
 
 void child_process_2(char *child2_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        fprintf(output, "%s\n", child2_message);
+        fprintf(output, "%s", child2_message);
     }
     exit(0);
 }
 
 void parent_process(char *parent_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        fprintf(output, "%s\n", parent_message);
+        fprintf(output, "%s", parent_message);
     }
 }
 
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 
     parent_process(parent_message, number, output_file);
 
-    fclose(output_file)
+    fclose(output_file);
 
     return 0;
 }
