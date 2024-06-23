@@ -29,7 +29,6 @@ bool file_exists(const char *filename){
 
 
 int main(int argc, char** argv) {
-    printf("entered to main");
 
     // Check for correct number of arguments
     if (argc < 5) {
@@ -70,7 +69,7 @@ int main(int argc, char** argv) {
                     remove("lockfile.lock");
                     locked = true;
                 } else {
-                    if (usleep((rand() % 100) * 1000) == -1) {
+                    if (usleep((rand() % 100) * 100) == -1) {
                         perror("usleep error");
                         exit(EXIT_FAILURE);
                     }
