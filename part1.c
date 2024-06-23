@@ -3,23 +3,24 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-void child_process_1(char *child1_message, int num) {
+void child_process_1(char *child1_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        printf("%s\n", child1_message);
+        fprintf(output, "%s\n", child1_message);
+        
     }
     exit(0);
 }
 
-void child_process_2(char *child2_message, int num) {
+void child_process_2(char *child2_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        printf("%s\n", child2_message);
+        fprintf(output, "%s\n", child2_message);
     }
     exit(0);
 }
 
-void parent_process(char *parent_message, int num) {
+void parent_process(char *parent_message, int num, FILE *output) {
     for (int i = 1; i <= num; i++) {
-        printf("%s\n", parent_message);
+        fprintf(output, "%s\n", parent_message);
     }
 }
 
@@ -37,6 +38,8 @@ int main(int argc, char** argv) {
     char *child2_message = argv[3];
     int number = atoi(argv[4]); // Convert the last argument to an integer
 
+    FILE *output_file;
+    output_file = fopen("output.txt", "w");
 
     pid_t child1, child2;
 
@@ -48,7 +51,7 @@ int main(int argc, char** argv) {
         exit(1);
     } else if (child1 == 0) {
         // Inside the first child process
-        child_process_1(child1_message, number);
+        child_process_1(child1_message, number, output_file);
     }
 
     // Create the second child process
@@ -59,7 +62,7 @@ int main(int argc, char** argv) {
         exit(1);
     } else if (child2 == 0) {
         // Inside the second child process
-        child_process_2(child2_message, number);
+        child_process_2(child2_message, number, output_file);
     }
 
     // Parent process waits for both children to finish
@@ -67,7 +70,9 @@ int main(int argc, char** argv) {
     waitpid(child1, &status, 0);
     waitpid(child2, &status, 0);
 
-    parent_process(parent_message, number);
+    parent_process(parent_message, number, output_file);
+
+    fclose(output_file)
 
     return 0;
 }
