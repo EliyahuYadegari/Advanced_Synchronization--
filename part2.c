@@ -6,6 +6,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/wait.h>
+#include <string.h>
 
 #define TRUE 1
 #define FALSE 0
@@ -20,79 +22,74 @@ void write_message(const char *message, int count) {
     }
 }
 
-int getlock(const char *lockfile) {
-    // Check if lock file exists
-    return access(lockfile, F_OK);
+bool file_exists(const char *filename){
+    struct stat buffer;
+    return stat(filename, &buffer) == 0 ? true : false;
 }
 
-int setlock(const char *lockfile) {
-    int fd = open(lockfile, O_CREAT | O_RDWR, 0666);
-    if (fd == -1) {
-        perror("Failed to create lock file");
-        return -1;
-    }
-    // Implement locking mechanism (e.g., flock, fcntl, etc.)
-    // Example: flock(fd, LOCK_EX);
-    return 0;
-}
 
 int main(int argc, char** argv) {
+    printf("entered to main");
 
-    if (argc < 4) {
+    // Check for correct number of arguments
+    if (argc < 5) {
+        printf("few args");
         fprintf(stderr, "Usage: %s <message1> <message2> ... <count>\n", argv[0]);
         return 1;
     }
 
-    int num_children = argc - 2; // Calculate number of children
-    pid_t *children = malloc(num_children * sizeof(pid_t));
-
-    if (children == NULL) {
-        perror("Failed to allocate memory for children array");
-        return 1;
+    // Extract messages and count from command-line arguments
+    const int num_messages = argc - 2;
+    const char* messages[num_messages];
+    for (int i = 1; i <= num_messages; i++) {
+        messages[i - 1] = argv[i];
     }
+    int count = atoi(argv[argc - 1]);
 
-    for (int i = 1; i <= num_children; i++) {
-        children[i - 1] = fork();
+    // Open lock file (create if it doesn't exist)
+    const char* lockfile = "lockfile.lock";
+    FILE* lock_file;
 
-        if (children[i - 1] < 0) {
+    // Fork child processes
+    pid_t children[num_messages];
+    for (int i = 0; i < num_messages; i++) {
+        children[i] = fork();
+        if (children[i] == -1) {
             perror("fork failed");
-            exit(EXIT_FAILURE);
-        } else if (children[i - 1] == 0) {
-            // Inside the child process
+            return 1;
+        } else if (children[i] == 0) {
+            // Child process
             bool locked = FALSE;
             while (!locked) {
-                if (getlock(lockfile) == 0) {
-                    // Lock file is not present, create lock file and acquire lock
-                    int lockstatus = setlock(lockfile);
-                    if (lockstatus == 0) {
-                        write_message(argv[i], atoi(argv[argc - 1]));
-                        // Release the lock
-                        unlink(lockfile);
-                        locked = TRUE;
-                    }
+                if (!file_exists(lockfile)) {
+                    // create lockfile
+                    lock_file = fopen(lockfile, "w");
+                    // print messege
+                    write_message(messages[i], count);
+                    // delete the lockfile
+                    remove("lockfile.lock");
+                    locked = true;
                 } else {
                     if (usleep((rand() % 100) * 1000) == -1) {
                         perror("usleep error");
                         exit(EXIT_FAILURE);
                     }
+                    continue;
                 }
             }
-            exit(EXIT_SUCCESS); // Exit child process
+            exit(0); // Exit child process
         }
     }
 
     // Parent process waits for all children to finish
-    for (int i = 0; i < num_children; i++) {
+    for (int i = 0; i < num_messages; i++) {
         int status;
-        pid_t pid = waitpid(children[i], &status, 0);
-        if (pid == -1) {
-            perror("Waitpid for child failed");
+        if (waitpid(children[i], &status, 0) == -1) {
+            perror("waitpid failed");
+            return 1;
         }
     }
 
-
-
-    free(children); // Free allocated memory
 
     return 0;
 }
