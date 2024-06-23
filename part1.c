@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     child2 = fork();
     if (child2 < 0) {
         // Fork failed
-        perror("fork");
+        perror("fork failed");
         exit(1);
     } else if (child2 == 0) {
         // Inside the second child process
@@ -67,8 +67,17 @@ int main(int argc, char** argv) {
 
     // Parent process waits for both children to finish
     int status;
-    waitpid(child1, &status, 0);
-    waitpid(child2, &status, 0);
+    pid_t pid;
+
+    pid = waitpid(child1, &status, 0);
+    if (pid == -1) {
+        perror("Waitpid for child1 failed");
+    }
+
+    pid = waitpid(child2, &status, 0);
+    if (pid == -1) {
+        perror("Waitpid for child2 failed");
+    }
 
     parent_process(parent_message, number, output_file);
 
