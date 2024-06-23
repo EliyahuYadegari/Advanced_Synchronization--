@@ -4,24 +4,23 @@
 #include <sys/wait.h>
 
 void child_process_1(char *child1_message, int num) {
-    for (int i= 1, i<=num, i++){
+    for (int i = 1; i <= num; i++) {
         printf("%s\n", child1_message);
     }
     exit(0);
 }
 
 void child_process_2(char *child2_message, int num) {
-    for (int i= 1, i<=num, i++){
+    for (int i = 1; i <= num; i++) {
         printf("%s\n", child2_message);
     }
     exit(0);
 }
 
 void parent_process(char *parent_message, int num) {
-    for (int i= 1, i<=num, i++){
+    for (int i = 1; i <= num; i++) {
         printf("%s\n", parent_message);
     }
-    exit(0);
 }
 
 
@@ -49,7 +48,7 @@ int main(int argc, char** argv) {
         exit(1);
     } else if (child1 == 0) {
         // Inside the first child process
-        child_process_1(*child1_message, number);
+        child_process_1(child1_message, number);
     }
 
     // Create the second child process
@@ -60,7 +59,7 @@ int main(int argc, char** argv) {
         exit(1);
     } else if (child2 == 0) {
         // Inside the second child process
-        child_process_2(*child2_message, number);
+        child_process_2(child2_message, number);
     }
 
     // Parent process waits for both children to finish
@@ -68,7 +67,7 @@ int main(int argc, char** argv) {
     waitpid(child1, &status, 0);
     waitpid(child2, &status, 0);
 
-    parent_process(*parent_message, number);
-    
+    parent_process(parent_message, number);
+
     return 0;
 }
