@@ -1,98 +1,83 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
-#include <errno.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <string.h>
+#include <errno.h>
+#include <time.h>
 
-#define TRUE 1
-#define FALSE 0
+#define LOCK_FILE "lockfile.lock"
+#define OUTPUT_FILE "output2.txt"
 
+// write the message "count" time
 void write_message(const char *message, int count) {
     for (int i = 0; i < count; i++) {
         printf("%s\n", message);
-        if (usleep((rand() % 100) * 1000) == -1) {
-            perror("usleep error");
+        if (usleep((rand() % 100) * 1000) == -1) { // Random delay between 0 and 99 milliseconds
+            perror("usleep");
             exit(EXIT_FAILURE);
         }
     }
 }
 
-bool file_exists(const char *filename){
-    struct stat buffer;
-    return stat(filename, &buffer) == 0 ? true : false;
+// creat lockfile if needed, waits else
+void acquire_lock() {
+    while (open(LOCK_FILE, O_CREAT | O_EXCL, 0444) == -1) {
+        if (errno != EEXIST) {
+            perror("Failed to acquire lock");
+            exit(EXIT_FAILURE);
+        }
+        if (usleep(100000) == -1) { // Wait 100 milliseconds before retrying
+            perror("usleep");
+            exit(EXIT_FAILURE);
+        }
+    }
 }
 
+// delete the lockfile if exist
+void release_lock() {
+    if (unlink(LOCK_FILE) == -1) {
+        perror("Failed to release lock");
+        exit(EXIT_FAILURE);
+    }
+}
 
-int main(int argc, char** argv) {
-
-    // Check for correct number of arguments
+int main(int argc, char *argv[]) {
     if (argc < 5) {
-        printf("few args");
         fprintf(stderr, "Usage: %s <message1> <message2> ... <count>\n", argv[0]);
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    // Extract messages and count from command-line arguments
-    const int num_messages = argc - 2;
-    const char* messages[num_messages];
-    for (int i = 1; i <= num_messages; i++) {
-        messages[i - 1] = argv[i];
-    }
     int count = atoi(argv[argc - 1]);
+    int num_messages = argc - 2;
 
-    // Open lock file (create if it doesn't exist)
-    const char* lockfile = "lockfile.lock";
-    FILE* lock_file;
-    
-    // Fork child processes
-    pid_t children[num_messages];
+    srand(time(NULL));
+
+    pid_t pids[num_messages];
     for (int i = 0; i < num_messages; i++) {
-    
+        pids[i] = fork();
+        if (pids[i] < 0) {
+            perror("fork");
+            return EXIT_FAILURE;
+        } else if (pids[i] == 0) {
+            // creat lockfile if needed, waits else
+            acquire_lock();
+            // write the message "count" time
+            write_message(argv[i+1], count);
+            // delete the lockfile if exist
+            release_lock();
+            // exit child procces
+            exit(EXIT_SUCCESS);        }
     }
 
+    // parent waits for all children to finish
     for (int i = 0; i < num_messages; i++) {
-        usleep(10000);
-        children[i] = fork();
-        if (children[i] == -1) {
-            perror("fork failed");
-            return 1;
-        } else if (children[i] == 0) {
-            // Child process
-            bool locked = FALSE;
-
-            while (file_exists(lockfile)){
-                    if (usleep(10000) == -1) {
-                        perror("usleep error");
-                        exit(EXIT_FAILURE);
-                    }
-            }
-            usleep(5000);
-            if (!file_exists(lockfile)) {
-                    // create lockfile
-                    lock_file = fopen(lockfile, "w");
-                    // print messege
-                    write_message(messages[i], count);
-                    // delete the lockfile
-                    remove("lockfile.lock");
-                }
-            exit(0); // Exit child process
+        if (waitpid(pids[i], NULL, 0) < 0) {
+            perror("waitpid");
+            return EXIT_FAILURE;
         }
     }
 
-    // Parent process waits for all children to finish
-    for (int i = 0; i < num_messages; i++) {
-        int status;
-        if (waitpid(children[i], &status, 0) == -1) {
-            perror("waitpid failed");
-            return 1;
-        }
-    }
-
-
-    return 0;
+    return EXIT_SUCCESS;
 }
