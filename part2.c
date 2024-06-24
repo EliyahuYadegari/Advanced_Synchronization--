@@ -48,10 +48,15 @@ int main(int argc, char** argv) {
     // Open lock file (create if it doesn't exist)
     const char* lockfile = "lockfile.lock";
     FILE* lock_file;
-
+    
     // Fork child processes
     pid_t children[num_messages];
     for (int i = 0; i < num_messages; i++) {
+    
+    }
+
+    for (int i = 0; i < num_messages; i++) {
+        sleep(1);
         children[i] = fork();
         if (children[i] == -1) {
             perror("fork failed");
