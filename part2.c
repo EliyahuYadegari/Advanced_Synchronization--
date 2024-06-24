@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
     }
 
     for (int i = 0; i < num_messages; i++) {
-        sleep(1);
+        usleep(10000);
         children[i] = fork();
         if (children[i] == -1) {
             perror("fork failed");
@@ -64,23 +64,22 @@ int main(int argc, char** argv) {
         } else if (children[i] == 0) {
             // Child process
             bool locked = FALSE;
-            while (!locked) {
-                if (!file_exists(lockfile)) {
+
+            while (file_exists(lockfile)){
+                    if (usleep(10000) == -1) {
+                        perror("usleep error");
+                        exit(EXIT_FAILURE);
+                    }
+            }
+            usleep(5000);
+            if (!file_exists(lockfile)) {
                     // create lockfile
                     lock_file = fopen(lockfile, "w");
                     // print messege
                     write_message(messages[i], count);
                     // delete the lockfile
                     remove("lockfile.lock");
-                    locked = true;
-                } else {
-                    if (usleep((rand() % 100) * 100) == -1) {
-                        perror("usleep error");
-                        exit(EXIT_FAILURE);
-                    }
-                    continue;
                 }
-            }
             exit(0); // Exit child process
         }
     }
