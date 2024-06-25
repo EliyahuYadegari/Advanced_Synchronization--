@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+
 
 // Function to wrap the original open function
 buffered_file_t *buffered_open(const char *pathname, int flags, ...) {
@@ -74,82 +76,38 @@ buffered_file_t *buffered_open(const char *pathname, int flags, ...) {
     return bf;
 }
 
-// Function to flush the buffer to the file
-int buffered_flush(buffered_file_t *bf) {
-    if (bf->write_buffer_pos > 0) {
-        // Handle O_PREAPPEND flag
-        // Handle O_PREAPPEND flag in buffered_flush
-        if (bf->flags & O_PREAPPEND) {
-            // Step 1: Flush the current buffer content
-            ssize_t written = write(bf->fd, bf->write_buffer, bf->write_buffer_pos);
-            if (written == -1) {
-                return -1; // Error occurred during write
-            }
-
-            // Step 2: Read existing file content into a temporary buffer
-            off_t current_offset = lseek(bf->fd, 0, SEEK_CUR);
-            if (current_offset == -1) {
-                return -1; // Error handling for lseek
-            }
-
-            char *temp_buffer = (char *)malloc(current_offset);
-            if (!temp_buffer) {
-                errno = ENOMEM;
-                return -1; // Error handling for malloc
-            }
-
-            ssize_t bytes_read = pread(bf->fd, temp_buffer, current_offset, 0);
-            if (bytes_read == -1) {
-                free(temp_buffer);
-                return -1; // Error handling for pread
-            }
-
-            // Step 3: Write existing content after the flushed buffer content
-            ssize_t write_result = pwrite(bf->fd, temp_buffer, bytes_read, bf->write_buffer_pos);
-            free(temp_buffer);
-            if (write_result == -1) {
-                return -1; // Error handling for pwrite
-            }
-
-            bf->write_buffer_pos = 0;
-        } else {
-            // Normal buffered flush without O_PREAPPEND
-            ssize_t written = write(bf->fd, bf->write_buffer, bf->write_buffer_pos);
-            if (written == -1) {
-                return -1; // Error occurred during write
-            }
-            bf->write_buffer_pos = 0;
-        }
-
-    }
-    return 0;
-}
-
-
 // Function to write to the buffered file
 ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
     size_t remaining = count;
     const char *buf_ptr = (const char *)buf;
 
+    // Flush any pending writes before proceeding with the write operation
+    if (buffered_flush(bf) == -1) {
+        return -1; // Error during flush
+    }
+
     // Handle O_PREAPPEND flag
+   // printf ("preappend: %d", O_PREAPPEND);
     if (bf->flags & O_PREAPPEND) {
+        // printf ("preappend2:");
         // Step 1: Read existing file content into a temporary buffer
-        off_t current_offset = lseek(bf->fd, 0, SEEK_CUR);
-        if (current_offset == -1) {
+        off_t file_size = lseek(bf->fd, 0, SEEK_END);
+        if (file_size == -1) {
             return -1; // Error handling for lseek
         }
 
-        char *temp_buffer = (char *)malloc(current_offset);
+        char *temp_buffer = (char *)malloc(file_size);
         if (!temp_buffer) {
             errno = ENOMEM;
             return -1; // Error handling for malloc
         }
 
-        ssize_t bytes_read = pread(bf->fd, temp_buffer, current_offset, 0);
+        ssize_t bytes_read = pread(bf->fd, temp_buffer, file_size, 0);
         if (bytes_read == -1) {
             free(temp_buffer);
             return -1; // Error handling for pread
         }
+        //printf ("temp buffer: %s" , temp_buffer);
 
         // Step 2: Write new data at the beginning
         ssize_t write_result = pwrite(bf->fd, buf_ptr, count, 0);
@@ -159,17 +117,14 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
         }
 
         // Step 3: Append the existing content after the new data
-        write_result = pwrite(bf->fd, temp_buffer, current_offset, count);
+        write_result = pwrite(bf->fd, temp_buffer, bytes_read, count);
         free(temp_buffer);
         if (write_result == -1) {
             return -1; // Error handling for pwrite
         }
 
-        // Update file offset after writing
-        off_t new_offset = lseek(bf->fd, 0, SEEK_CUR); // Get current offset
-        if (new_offset == -1) {
-            return -1; // Error handling for lseek
-        }
+        // Update buffered_file_t state
+        bf->write_buffer_pos = 0;
 
         return count;
     }
@@ -196,15 +151,53 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
         remaining -= to_write;
     }
 
-    // Update file offset after writing
-    off_t new_offset = lseek(bf->fd, 0, SEEK_CUR); // Get current offset
-    if (new_offset == -1) {
-        return -1; // Error handling for lseek
-    }
-
     return count;
 }
 
+// Function to flush the buffer to the file
+int buffered_flush(buffered_file_t *bf) {
+    if (bf->write_buffer_pos > 0) {
+        // Flush the current buffer content
+        ssize_t written = write(bf->fd, bf->write_buffer, bf->write_buffer_pos);
+        if (written == -1) {
+            return -1; // Error occurred during write
+        }
+
+        // Handle O_PREAPPEND flag
+        if (bf->preappend) {
+            // Read existing file content into a temporary buffer
+            off_t current_offset = lseek(bf->fd, 0, SEEK_CUR);
+            if (current_offset == -1) {
+                return -1; // Error handling for lseek
+            }
+
+            char *temp_buffer = (char *)malloc(current_offset);
+            if (!temp_buffer) {
+                errno = ENOMEM;
+                return -1; // Error handling for malloc
+            }
+
+            ssize_t bytes_read = pread(bf->fd, temp_buffer, current_offset, 0);
+            if (bytes_read == -1) {
+                free(temp_buffer);
+                return -1; // Error handling for pread
+            }
+
+            // Write existing content after the flushed buffer content
+            ssize_t write_result = pwrite(bf->fd, temp_buffer, bytes_read, bf->write_buffer_pos);
+            free(temp_buffer);
+            if (write_result == -1) {
+                return -1; // Error handling for pwrite
+            }
+
+            bf->write_buffer_pos = 0;
+        } else {
+            // Normal buffered flush without O_PREAPPEND
+            bf->write_buffer_pos = 0;
+        }
+    }
+    return 0;
+}
 
 // Function to read from the buffered file
 ssize_t buffered_read(buffered_file_t *bf, void *buf, size_t count) {
