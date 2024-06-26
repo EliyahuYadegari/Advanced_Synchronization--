@@ -204,15 +204,17 @@ ssize_t buffered_read(buffered_file_t *bf, void *buf, size_t count) {
     size_t remaining = count;
     char *buf_ptr = (char *)buf;
 
-    // Flush write buffer before reading
-    if (buffered_flush(bf) == -1) {
-        return -1; // Error occurred during flush
+    // Flush the write buffer before reading to ensure consistency
+    if (bf->write_buffer_pos > 0) {
+        if (buffered_flush(bf) == -1) {
+            return -1; // Error occurred during flush
+        }
     }
 
     while (remaining > 0) {
         size_t available_in_buffer = bf->read_buffer_size - bf->read_buffer_pos;
 
-        // If the buffer is empty, fill it
+        // If the read buffer is empty, fill it
         if (available_in_buffer == 0) {
             ssize_t bytes_read = read(bf->fd, bf->read_buffer, BUFFER_SIZE);
             if (bytes_read == -1) {
@@ -229,19 +231,14 @@ ssize_t buffered_read(buffered_file_t *bf, void *buf, size_t count) {
         // Determine how much data can be read from the buffer
         size_t to_read = (remaining < available_in_buffer) ? remaining : available_in_buffer;
 
-        // Copy data from the buffer to the output buffer
+        // Copy data from the read buffer to the output buffer
         memcpy(buf_ptr, bf->read_buffer + bf->read_buffer_pos, to_read);
         bf->read_buffer_pos += to_read;
         buf_ptr += to_read;
         remaining -= to_read;
     }
 
-    // Update file offset after reading
-    off_t new_offset = lseek(bf->fd, 0, SEEK_CUR); // Get current offset
-    if (new_offset == -1) {
-        return -1; // Error handling for lseek
-    }
-
+    // Return the number of bytes actually read
     return count - remaining;
 }
 
