@@ -72,7 +72,7 @@ void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_pe
         close(source_fd);
 
         // Set the permissions of the target file
-        if (chmod(dest, source_stat.st_permissions) == -1) {
+        if (chmod(dest, source_stat.st_mode) == -1) {
             perror("Error setting target file permissions");
             return;
         }
@@ -80,9 +80,18 @@ void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_pe
         // Close the source file if permissions are not copied
         close(source_fd);
     }
+
+    // Print confirmation of file copy with permissions
+    struct stat st;
+    if (lstat(dest, &st) == 0) {
+        printf("File '%s' copied to '%s' with %o permissions\n", src, dest, st.st_mode);
+    } else {
+        perror("Error confirming file copy");
+    }
 }
+
 // Helper function to create directories recursively
-int create_directory_recursive(const char *dir_path, permissions_t permissions) {
+int create_directory_recursive(const char *dir_path, mode_t mode) {
     char temp_path[PATH_MAX];
     char *ptr = NULL;
     size_t len;
@@ -114,7 +123,7 @@ int create_directory_recursive(const char *dir_path, permissions_t permissions) 
     }
 
     // Set permissions explicitly after creation
-    if (chmod(temp_path, permissions) == -1) {
+    if (chmod(temp_path, mode) == -1) {
         perror("Error setting directory permissions");
         return -1;
     }
@@ -122,13 +131,14 @@ int create_directory_recursive(const char *dir_path, permissions_t permissions) 
     // Print confirmation of directory creation with permissions
     struct stat st;
     if (lstat(temp_path, &st) == 0) {
-        printf("Directory %s created with %o permissions\n", temp_path, st.st_permissions);
+        printf("Directory '%s' created with %o premissions\n", temp_path, st.st_mode);
     } else {
         perror("Error confirming directory creation");
     }
 
     return 0;  // Return 0 on success
 }
+
 // Function to copy a directory from src to dest, handling all types of entries within.
 void copy_directory(const char *src, const char *dest, int copy_symlinks, int copy_permissions) {
     DIR *dir = opendir(src);
@@ -145,10 +155,10 @@ void copy_directory(const char *src, const char *dest, int copy_symlinks, int co
     }
 
     // Use the source directory's permissions if copy_permissions is enabled, otherwise use 0755
-    permissions_t permissions = copy_permissions ? source_stat.st_permissions : 0755;
+    mode_t mode = copy_permissions ? source_stat.st_mode : 0755;
 
     // Create the target directory if it doesn't exist
-    if (create_directory_recursive(dest, permissions) != 0) {
+    if (create_directory_recursive(dest, mode) != 0) {
         perror("Error creating target directory");
         closedir(dir);
         return;
@@ -176,7 +186,7 @@ void copy_directory(const char *src, const char *dest, int copy_symlinks, int co
         }
 
         // Handle all types of entries (regular files, directories, symbolic links)
-        if (S_ISDIR(statbuf.st_permissions)) {
+        if (S_ISDIR(statbuf.st_mode)) {
             // Recursive call to duplicate subdirectory
             copy_directory(source_path, target_path, copy_symlinks, copy_permissions);
         } else {
