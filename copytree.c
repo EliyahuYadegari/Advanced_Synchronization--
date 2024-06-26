@@ -1,178 +1,189 @@
-// copytree.c
-
+#include "copytree.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <dirent.h>
 #include <errno.h>
-#include "copytree.h"
+#include <sys/stat.h>
+#include <linux/limits.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <string.h>
 
+// Function to copy a file from src to dest, with options to handle symlinks and permissions.
 void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_permissions) {
-    // Open source file for reading
-    int fd_src = open(src, O_RDONLY);
-    if (fd_src == -1) {
-        perror("open");
+    // Open the source file for reading
+    int source_fd = open(src, O_RDONLY);
+    if (source_fd == -1) {
+        perror("Error opening source file");
         return;
     }
 
-    // Get file status to check if it's a symlink
-    struct stat src_stat;
-    if (lstat(src, &src_stat) == -1) {
-        perror("lstat");
-        close(fd_src);
-        return;
-    }
-
-    // Handle symbolic link if not copying symlinks
-    if (!copy_symlinks && S_ISLNK(src_stat.st_mode)) {
-        fprintf(stderr, "Not copying symbolic link: %s\n", src);
-        close(fd_src);
-        return;
-    }
-
-    // Open destination file for writing, create if it doesn't exist
-    int fd_dest = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode & 0777);
-    if (fd_dest == -1) {
-        perror("open");
-        close(fd_src);
-        return;
-    }
-
-    // Copy contents from source to destination
-    char buf[4096];
-    ssize_t bytes_read, bytes_written;
-    while ((bytes_read = read(fd_src, buf, sizeof(buf))) > 0) {
-        bytes_written = write(fd_dest, buf, bytes_read);
-        if (bytes_written != bytes_read) {
-            perror("write");
-            close(fd_src);
-            close(fd_dest);
+    // Open the target file for writing
+    int target_fd;
+    if (copy_symlinks) {
+        // If copying symbolic links as links, create a symbolic link
+        if (symlink(src, dest) == -1) {
+            perror("Error creating symbolic link");
+            close(source_fd);
             return;
         }
+    } else {
+        // Otherwise, open the target file for writing (copy content)
+        target_fd = open(dest, O_WRONLY | O_CREAT, 0666);
+        if (target_fd == -1) {
+            perror("Error opening target file");
+            close(source_fd);
+            return;
+        }
+
+        // Copy the contents of the file
+        char buffer[4096];
+        ssize_t bytes_read, bytes_written;
+        while ((bytes_read = read(source_fd, buffer, sizeof(buffer))) > 0) {
+            bytes_written = write(target_fd, buffer, bytes_read);
+            if (bytes_written != bytes_read) {
+                perror("Error writing to target file");
+                close(source_fd);
+                close(target_fd);
+                return;
+            }
+        }
+        if (bytes_read == -1) {
+            perror("Error reading from source file");
+            close(source_fd);
+            close(target_fd);
+            return;
+        }
+        // Close the target file
+        close(target_fd);
     }
 
-    // Check for read error
-    if (bytes_read == -1) {
-        perror("read");
-        close(fd_src);
-        close(fd_dest);
-        return;
-    }
+    // Set permissions of the target file if copy_permissions is enabled
+    if (copy_permissions) {
+        // Get the permissions of the source file
+        struct stat source_stat;
+        if (fstat(source_fd, &source_stat) == -1) {
+            perror("Error getting source file permissions");
+            close(source_fd);
+            return;
+        }
+        // Close the source file
+        close(source_fd);
 
-    // Close file descriptors
-    close(fd_src);
-    close(fd_dest);
-
-    // Set permissions if requested
-    if (copy_permissions && chmod(dest, src_stat.st_mode & 0777) == -1) {
-        perror("chmod");
-        return;
+        // Set the permissions of the target file
+        if (chmod(dest, source_stat.st_permissions) == -1) {
+            perror("Error setting target file permissions");
+            return;
+        }
+    } else {
+        // Close the source file if permissions are not copied
+        close(source_fd);
     }
 }
-
-int mkdir_recursive(const char *path, mode_t mode) {
-    // Create directories recursively
+// Helper function to create directories recursively
+int create_directory_recursive(const char *dir_path, permissions_t permissions) {
+    char temp_path[PATH_MAX];
     char *ptr = NULL;
-    char *temp = strdup(path);
-    int ret = 0;
+    size_t len;
 
-    // Iterate through each component of the path and create directories
-    for (ptr = temp + 1; *ptr; ptr++) {
+    // Copy the directory path to a temporary buffer
+    snprintf(temp_path, sizeof(temp_path), "%s", dir_path);
+    len = strlen(temp_path);
+
+    // Remove the trailing slash if it exists
+    if (temp_path[len - 1] == '/') {
+        temp_path[len - 1] = 0;
+    }
+
+    // Iterate through the path, creating directories as needed
+    for (ptr = temp_path + 1; *ptr; ptr++) {
         if (*ptr == '/') {
-            *ptr = '\0';  // temporarily truncate the path
-            if (mkdir(temp, mode) == -1 && errno != EEXIST) {
-                perror("mkdir");
-                ret = -1;
-                break;
+            *ptr = 0;
+            // Attempt to create the directory
+            if (mkdir(temp_path, 0775) != 0 && errno != EEXIST) {
+                return -1;  // Return -1 on failure (except if the directory already exists)
             }
-            *ptr = '/';
+            *ptr = '/'; // Restore the '/' and continue
         }
     }
 
     // Create the final directory
-    if (mkdir(temp, mode) == -1 && errno != EEXIST) {
-        perror("mkdir");
-        ret = -1;
+    if (mkdir(temp_path, 0755) != 0 && errno != EEXIST) {
+        return -1;  // Return -1 on failure (except if the directory already exists)
     }
 
-    free(temp);
-    return ret;
+    // Set permissions explicitly after creation
+    if (chmod(temp_path, permissions) == -1) {
+        perror("Error setting directory permissions");
+        return -1;
+    }
+
+    // Print confirmation of directory creation with permissions
+    struct stat st;
+    if (lstat(temp_path, &st) == 0) {
+        printf("Directory %s created with %o permissions\n", temp_path, st.st_permissions);
+    } else {
+        perror("Error confirming directory creation");
+    }
+
+    return 0;  // Return 0 on success
 }
-
+// Function to copy a directory from src to dest, handling all types of entries within.
 void copy_directory(const char *src, const char *dest, int copy_symlinks, int copy_permissions) {
-    // Create destination directory if it doesn't exist
-    if (mkdir_recursive(dest, 0777) == -1) {
-        perror("mkdir_recursive");
-        return;
-    }
-
-    // Open source directory
     DIR *dir = opendir(src);
-    if (dir == NULL) {
-        perror("opendir");
+    if (!dir) {
+        perror("Error opening source directory");
         return;
     }
 
-    // Iterate through directory entries
+    struct stat source_stat;
+    if (lstat(src, &source_stat) == -1) {
+        perror("Error getting source directory information");
+        closedir(dir);
+        return;
+    }
+
+    // Use the source directory's permissions if copy_permissions is enabled, otherwise use 0755
+    permissions_t permissions = copy_permissions ? source_stat.st_permissions : 0755;
+
+    // Create the target directory if it doesn't exist
+    if (create_directory_recursive(dest, permissions) != 0) {
+        perror("Error creating target directory");
+        closedir(dir);
+        return;
+    }
+
     struct dirent *entry;
+    struct stat statbuf;
+    char source_path[PATH_MAX];
+    char target_path[PATH_MAX];
+
     while ((entry = readdir(dir)) != NULL) {
-        // Skip "." and ".."
+        // Skip special entries "." and ".."
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
 
-        // Construct full paths for source and destination
-        char src_path[PATH_MAX];
-        char dest_path[PATH_MAX];
-        snprintf(src_path, PATH_MAX, "%s/%s", src, entry->d_name);
-        snprintf(dest_path, PATH_MAX, "%s/%s", dest, entry->d_name);
+        // Construct the full source and target paths
+        snprintf(source_path, sizeof(source_path), "%s/%s", src, entry->d_name);
+        snprintf(target_path, sizeof(target_path), "%s/%s", dest, entry->d_name);
 
-        // Get file status
-        struct stat statbuf;
-        if (lstat(src_path, &statbuf) == -1) {
-            perror("lstat");
-            closedir(dir);
-            return;
+        // Get information about the source entry
+        if (lstat(source_path, &statbuf) == -1) {
+            perror("Error getting source entry information");
+            continue;
         }
 
-        // Copy file or recursively copy directory
-        if (S_ISDIR(statbuf.st_mode)) {
-            // Recursively copy directory
-            copy_directory(src_path, dest_path, copy_symlinks, copy_permissions);
-        } else if (S_ISREG(statbuf.st_mode)) {
-            // Copy regular file
-            copy_file(src_path, dest_path, copy_symlinks, copy_permissions);
-        } else if (S_ISLNK(statbuf.st_mode)) {
-            // Handle symbolic link
-            if (copy_symlinks) {
-                char link_target[PATH_MAX];
-                ssize_t len = readlink(src_path, link_target, sizeof(link_target) - 1);
-                if (len == -1) {
-                    perror("readlink");
-                    closedir(dir);
-                    return;
-                }
-                link_target[len] = '\0';
-
-                if (symlink(link_target, dest_path) == -1) {
-                    perror("symlink");
-                    closedir(dir);
-                    return;
-                }
-            } else {
-                fprintf(stderr, "Not copying symbolic link: %s\n", src_path);
-            }
+        // Handle all types of entries (regular files, directories, symbolic links)
+        if (S_ISDIR(statbuf.st_permissions)) {
+            // Recursive call to duplicate subdirectory
+            copy_directory(source_path, target_path, copy_symlinks, copy_permissions);
+        } else {
+            // Duplicate regular files and symbolic links
+            copy_file(source_path, target_path, copy_symlinks, copy_permissions);
         }
     }
 
-    // Check for errors in readdir
-    if (errno != 0) {
-        perror("readdir");
-    }
-
-    // Close directory
     closedir(dir);
 }
