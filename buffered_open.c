@@ -5,7 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
-
+#include <fcntl.h>
 
 // Function to wrap the original open function
 buffered_file_t *buffered_open(const char *pathname, int flags, ...) {
@@ -87,9 +87,7 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
     }
 
     // Handle O_PREAPPEND flag
-   // printf ("preappend: %d", O_PREAPPEND);
     if (bf->flags & O_PREAPPEND) {
-        // printf ("preappend2:");
         // Step 1: Read existing file content into a temporary buffer
         off_t file_size = lseek(bf->fd, 0, SEEK_END);
         if (file_size == -1) {
@@ -107,7 +105,6 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
             free(temp_buffer);
             return -1; // Error handling for pread
         }
-        //printf ("temp buffer: %s" , temp_buffer);
 
         // Step 2: Write new data at the beginning
         ssize_t write_result = pwrite(bf->fd, buf_ptr, count, 0);
@@ -153,6 +150,7 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
 
     return count;
 }
+
 
 // Function to flush the buffer to the file
 int buffered_flush(buffered_file_t *bf) {
@@ -201,45 +199,38 @@ int buffered_flush(buffered_file_t *bf) {
 
 // Function to read from the buffered file
 ssize_t buffered_read(buffered_file_t *bf, void *buf, size_t count) {
-    size_t remaining = count;
-    char *buf_ptr = (char *)buf;
+    char *out_buffer = (char *)buf; // Cast buffer to char pointer for byte-wise operations
+    size_t bytes_read = 0; // Initialize the count of bytes read
 
-    // Flush the write buffer before reading to ensure consistency
-    if (bf->write_buffer_pos > 0) {
-        if (buffered_flush(bf) == -1) {
-            return -1; // Error occurred during flush
-        }
-    }
-
-    while (remaining > 0) {
-        size_t available_in_buffer = bf->read_buffer_size - bf->read_buffer_pos;
-
-        // If the read buffer is empty, fill it
-        if (available_in_buffer == 0) {
-            ssize_t bytes_read = read(bf->fd, bf->read_buffer, BUFFER_SIZE);
-            if (bytes_read == -1) {
-                return -1; // Error occurred during read
+    while (bytes_read < count) {
+        // If the read buffer is empty, read from the file into the buffer
+        if (bf->read_buffer_pos == 0) {
+            ssize_t bytes = read(bf->fd, bf->read_buffer, bf->read_buffer_size);
+            if (bytes == -1) {
+                perror("failed to read from file");
+                return -1; // Read error
             }
-            if (bytes_read == 0) {
-                break; // End of file reached
+            if (bytes == 0) {
+                break; // End of file
             }
-            bf->read_buffer_pos = 0;
-            bf->read_buffer_size = bytes_read;
-            available_in_buffer = bytes_read;
+            bf->read_buffer_pos = bytes; // Update the buffer position to reflect the bytes read
         }
 
-        // Determine how much data can be read from the buffer
-        size_t to_read = (remaining < available_in_buffer) ? remaining : available_in_buffer;
+        size_t bytes_to_read = bf->read_buffer_pos;
+        if (bytes_to_read > count - bytes_read) {
+            bytes_to_read = count - bytes_read; // Limit bytes to read to the remaining count
+        }
 
         // Copy data from the read buffer to the output buffer
-        memcpy(buf_ptr, bf->read_buffer + bf->read_buffer_pos, to_read);
-        bf->read_buffer_pos += to_read;
-        buf_ptr += to_read;
-        remaining -= to_read;
+        memcpy(out_buffer + bytes_read, bf->read_buffer, bytes_to_read);
+
+        // Move remaining data in the buffer to the beginning (handle overlapping regions)
+        memmove(bf->read_buffer, bf->read_buffer + bytes_to_read, bf->read_buffer_pos - bytes_to_read);
+        bf->read_buffer_pos -= bytes_to_read; // Update the read buffer position
+        bytes_read += bytes_to_read; // Update the count of bytes read
     }
 
-    // Return the number of bytes actually read
-    return count - remaining;
+    return bytes_read; // Return the total number of bytes read
 }
 
 // Function to close the buffered file
