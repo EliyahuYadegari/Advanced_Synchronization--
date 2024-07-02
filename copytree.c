@@ -12,27 +12,94 @@
 
 // Function to copy a file from src to dest, with options to handle symlinks and permissions.
 void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_permissions) {
-    // Open the source file for reading
-    int source_fd = open(src, O_RDONLY);
-    if (source_fd == -1) {
-        perror("Error opening source file");
+    struct stat src_stat;
+    if (lstat(src, &src_stat) == -1) {
+        perror("Error getting source file information");
         return;
     }
 
-    // Open the target file for writing
-    int target_fd;
-    if (copy_symlinks) {
-        // If copying symbolic links as links, create a symbolic link
-        if (symlink(src, dest) == -1) {
-            perror("Error creating symbolic link");
+    // Check if src is a directory
+    if (S_ISDIR(src_stat.st_mode)) {
+        fprintf(stderr, "Error: %s is a directory\n", src);
+        return;
+    }
+
+    // Check if src is a symbolic link
+    if (S_ISLNK(src_stat.st_mode)) {
+        // Handle symbolic links
+        if (copy_symlinks) {
+            // Get the target of the symbolic link
+            char link_target[PATH_MAX + 1];
+            ssize_t len = readlink(src, link_target, sizeof(link_target) - 1);
+            if (len == -1) {
+                perror("Error reading symbolic link");
+                return;
+            }
+            link_target[len] = '\0';
+
+            // Create the symbolic link in the destination
+            if (symlink(link_target, dest) == -1) {
+                perror("Error creating symbolic link");
+                return;
+            }
+        } else {
+            // Treat symbolic link as a regular file and copy its contents
+            int source_fd = open(src, O_RDONLY);
+            if (source_fd == -1) {
+                perror("Error opening source file");
+                fprintf(stderr, "File: %s\n", src); // Print the filename
+                return;
+            }
+
+            // Open the target file for writing (create if it doesn't exist)
+            int target_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode);
+            if (target_fd == -1) {
+                perror("Error opening target file");
+                fprintf(stderr, "File: %s\n", dest); // Print the filename
+                close(source_fd);
+                return;
+            }
+
+            // Copy the contents of the file
+            char buffer[4096];
+            ssize_t bytes_read, bytes_written;
+            while ((bytes_read = read(source_fd, buffer, sizeof(buffer))) > 0) {
+                bytes_written = write(target_fd, buffer, bytes_read);
+                if (bytes_written != bytes_read) {
+                    perror("Error writing to target file");
+                    fprintf(stderr, "File: %s\n", dest); // Print the filename
+                    close(source_fd);
+                    close(target_fd);
+                    return;
+                }
+            }
+
+            if (bytes_read == -1) {
+                perror("Error reading from source file");
+                // fprintf(stderr, "File: %s\n", src); // Print the filename
+                close(source_fd);
+                close(target_fd);
+                return;
+            }
+
+            // Close the files
             close(source_fd);
+            close(target_fd);
+        }
+    } else if (S_ISREG(src_stat.st_mode)) {
+        // Regular file, copy its contents
+        int source_fd = open(src, O_RDONLY);
+        if (source_fd == -1) {
+            perror("Error opening source file");
+            fprintf(stderr, "File: %s\n", src); // Print the filename
             return;
         }
-    } else {
-        // Otherwise, open the target file for writing (copy content)
-        target_fd = open(dest, O_WRONLY | O_CREAT, 0666);
+
+        // Open the target file for writing (create if it doesn't exist)
+        int target_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode);
         if (target_fd == -1) {
             perror("Error opening target file");
+            fprintf(stderr, "File: %s\n", dest); // Print the filename
             close(source_fd);
             return;
         }
@@ -44,49 +111,36 @@ void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_pe
             bytes_written = write(target_fd, buffer, bytes_read);
             if (bytes_written != bytes_read) {
                 perror("Error writing to target file");
+                fprintf(stderr, "File: %s\n", dest); // Print the filename
                 close(source_fd);
                 close(target_fd);
                 return;
             }
         }
+
         if (bytes_read == -1) {
             perror("Error reading from source file");
+            // fprintf(stderr, "File: %s\n", src); // Print the filename
             close(source_fd);
             close(target_fd);
             return;
         }
-        // Close the target file
+
+        // Close the files
+        close(source_fd);
         close(target_fd);
+    } else {
+        // Handle other file types if necessary (sockets, devices, etc.)
+        fprintf(stderr, "Unsupported file type: %s\n", src);
     }
 
     // Set permissions of the target file if copy_permissions is enabled
-    if (copy_permissions) {
-        // Get the permissions of the source file
-        struct stat source_stat;
-        if (fstat(source_fd, &source_stat) == -1) {
-            perror("Error getting source file permissions");
-            close(source_fd);
-            return;
-        }
-        // Close the source file
-        close(source_fd);
-
-        // Set the permissions of the target file
-        if (chmod(dest, source_stat.st_mode) == -1) {
+    if (copy_permissions && !S_ISLNK(src_stat.st_mode)) {
+        if (chmod(dest, src_stat.st_mode) == -1) {
             perror("Error setting target file permissions");
+            fprintf(stderr, "File: %s\n", dest); // Print the filename
             return;
         }
-    } else {
-        // Close the source file if permissions are not copied
-        close(source_fd);
-    }
-
-    // Print confirmation of file copy with permissions
-    struct stat st;
-    if (lstat(dest, &st) == 0) {
-        printf("File '%s' copied to '%s' with %o permissions\n", src, dest, st.st_mode);
-    } else {
-        perror("Error confirming file copy");
     }
 }
 
@@ -126,14 +180,6 @@ int create_directory_recursive(const char *dir_path, mode_t mode) {
     if (chmod(temp_path, mode) == -1) {
         perror("Error setting directory permissions");
         return -1;
-    }
-
-    // Print confirmation of directory creation with permissions
-    struct stat st;
-    if (lstat(temp_path, &st) == 0) {
-        printf("Directory '%s' created with %o premissions\n", temp_path, st.st_mode);
-    } else {
-        perror("Error confirming directory creation");
     }
 
     return 0;  // Return 0 on success
