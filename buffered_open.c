@@ -151,7 +151,6 @@ ssize_t buffered_write(buffered_file_t *bf, const void *buf, size_t count) {
     return count;
 }
 
-
 // Function to flush the buffer to the file
 int buffered_flush(buffered_file_t *bf) {
     if (bf->write_buffer_pos > 0) {
