@@ -43,48 +43,9 @@ void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_pe
                 return;
             }
         } else {
-            // Treat symbolic link as a regular file and copy its contents
-            int source_fd = open(src, O_RDONLY);
-            if (source_fd == -1) {
-                perror("Error opening source file");
-                fprintf(stderr, "File: %s\n", src); // Print the filename
-                return;
-            }
-
-            // Open the target file for writing (create if it doesn't exist)
-            int target_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode);
-            if (target_fd == -1) {
-                perror("Error opening target file");
-                fprintf(stderr, "File: %s\n", dest); // Print the filename
-                close(source_fd);
-                return;
-            }
-
-            // Copy the contents of the file
-            char buffer[4096];
-            ssize_t bytes_read, bytes_written;
-            while ((bytes_read = read(source_fd, buffer, sizeof(buffer))) > 0) {
-                bytes_written = write(target_fd, buffer, bytes_read);
-                if (bytes_written != bytes_read) {
-                    perror("Error writing to target file");
-                    fprintf(stderr, "File: %s\n", dest); // Print the filename
-                    close(source_fd);
-                    close(target_fd);
-                    return;
-                }
-            }
-
-            if (bytes_read == -1) {
-                perror("Error reading from source file");
-                // fprintf(stderr, "File: %s\n", src); // Print the filename
-                close(source_fd);
-                close(target_fd);
-                return;
-            }
-
-            // Close the files
-            close(source_fd);
-            close(target_fd);
+            // Error message indicating symbolic links are not supported
+            fprintf(stderr, "Error: Symbolic link encountered but not copying as link (-l not specified)\n");
+            return;
         }
     } else if (S_ISREG(src_stat.st_mode)) {
         // Regular file, copy its contents
@@ -120,7 +81,6 @@ void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_pe
 
         if (bytes_read == -1) {
             perror("Error reading from source file");
-            // fprintf(stderr, "File: %s\n", src); // Print the filename
             close(source_fd);
             close(target_fd);
             return;
