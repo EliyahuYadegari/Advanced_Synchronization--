@@ -10,6 +10,86 @@
 #include <dirent.h>
 #include <string.h>
 
+// Function to delete a file or directory recursively
+int delete_path(const char *path) {
+    struct stat statbuf;
+    if (lstat(path, &statbuf) != 0) {
+        perror("stat");
+        return -1;
+    }
+
+    if (S_ISDIR(statbuf.st_mode)) {
+        // It's a directory, so remove its contents first
+        DIR *dir = opendir(path);
+        if (!dir) {
+            perror("opendir");
+            return -1;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            // Skip the special entries "." and ".."
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+
+            // Construct the full path of the entry
+            char full_path[PATH_MAX];
+            snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+
+            // Recursively delete the entry
+            if (delete_path(full_path) != 0) {
+                closedir(dir);
+                return -1;
+            }
+        }
+
+        closedir(dir);
+
+        // Now the directory is empty, so remove it
+        if (rmdir(path) != 0) {
+            perror("rmdir");
+            return -1;
+        }
+    } else {
+        // It's a file or symbolic link, so remove it
+        if (unlink(path) != 0) {
+            perror("unlink");
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+// Function to check if the directory is empty
+int is_directory_empty(const char *path) {
+    int n = 0;
+    struct dirent *d;
+    DIR *dir = opendir(path);
+
+    if (dir == NULL) {
+        return 1; // If directory can't be opened, assume it is empty or doesn't exist
+    }
+
+    while ((d = readdir(dir)) != NULL) {
+        if (++n > 2) {
+            break; // More than 2 entries means it is not empty (entries are "." and "..")
+        }
+    }
+    closedir(dir);
+    return n <= 2;
+}
+
+// Function to check if directory exists
+int directory_exists(const char *path) {
+    struct stat statbuf;
+    if (stat(path, &statbuf) != 0) {
+        return 0;
+    }
+    return S_ISDIR(statbuf.st_mode);
+}
+
 // Function to copy a file from src to dest, with options to handle symlinks and permissions.
 void copy_file(const char *src, const char *dest, int copy_symlinks, int copy_permissions) {
     struct stat src_stat;
@@ -159,6 +239,15 @@ void copy_directory(const char *src, const char *dest, int copy_symlinks, int co
         closedir(dir);
         return;
     }
+
+    // Check if the target directory exists
+    if (directory_exists(dest)) {
+        errno = EEXIST; // Set errno to EEXIST to indicate that the file exists
+        perror("Error: Destination directory already exists");
+        closedir(dir);
+        return;
+    }
+
 
     // Use the source directory's permissions if copy_permissions is enabled, otherwise use 0755
     mode_t mode = copy_permissions ? source_stat.st_mode : 0755;
