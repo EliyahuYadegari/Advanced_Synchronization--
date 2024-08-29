@@ -1,66 +1,59 @@
-# Advanced Synchronization of File Access
+# Buffered File I/O Library
 
-This repository contains two C programs demonstrating different approaches to synchronizing file access between multiple processes. These programs showcase both naive methods and more advanced locking mechanisms to handle concurrent file writes, ensuring that processes do not interfere with each other's operations.
+This repository contains a C implementation of a buffered I/O library with support for a custom flag (O_PREAPPEND) that allows writing to the beginning of a file without overriding existing content. Additionally, it includes functionality similar to Python's `shutil.copytree`, enabling users to copy entire directory trees, including files and subdirectories, while handling symbolic links and file permissions.
 
 ## Installation
 
-1. Clone this repository to your local machine and navigate to the project directory:
+1. Clone this repository to your local machine and enter the project directory:
 
     ```bash
-    cd Advanced_Synchronization
+    cd Buffered_File_IO
     ```
 
-2. Compile the C source files:
+2. Compile the `copytree` library:
 
     ```bash
-    gcc part1.c -o part1
-    gcc part2.c -o part2
+    gcc -c copytree.c -o copytree.o
+    ar rcs libcopytree.a copytree.o
     ```
 
-3. Set the appropriate permissions to make the compiled programs executable:
+3. Compile the main program using the copytree library:
 
     ```bash
-    chmod +x part1
-    chmod +x part2
+    gcc part4.c -L. -lcopytree -o main_program
+    ```
+
+4. Compile the buffered I/O program:
+
+    ```bash
+    gcc -o buffered_io part3Test.c buffered_open.c
     ```
 
 ## Usage
 
-### Part 1: Naive Synchronization
+### Running the Main Program
 
-The `part1` program uses basic synchronization techniques (`wait` and `sleep`) to manage file access between parent and child processes.
-
-1. Run the `part1` program with the following command:
+1. Execute the main program with the following command:
 
     ```bash
-    ./part1 "Parent message" "Child1 message" "Child2 message" 3
+    ./main_program part4 part4d
     ```
 
-    - **Parent message**: The message the parent process will write.
-    - **Child1 message**: The message the first child process will write.
-    - **Child2 message**: The message the second child process will write.
-    - **3**: The number of times each process will write its message to the file.
+    - The first argument (`part4`) is the source directory to copy.
+    - The second argument (`part4d`) is the destination directory where the content will be copied.
 
-2. The output will be saved in a file named `output.txt` in the project directory.
+### Running the Buffered I/O Program
 
-### Part 2: Synchronization Lock
-
-The `part2` program implements a synchronization lock using a lock file to control access to the shared file, ensuring only one process writes at a time.
-
-1. Run the `part2` program with the following command:
+1. Execute the buffered I/O program with the following command:
 
     ```bash
-    ./part2 "First message" "Second message" "Third message" 3 > output2.txt
+    ./buffered_io
     ```
 
-    - **First message**, **Second message**, **Third message**: The messages that each child process will write.
-    - **3**: The number of times each process will write its message to the file.
-
-2. The output will be saved in a file named `output2.txt` in the project directory.
+    - This program will perform the buffered I/O operations as defined in your `part3Test.c` and `buffered_open.c` files.
 
 ## Features
 
-- **Naive Synchronization (Part 1):** Demonstrates basic synchronization using `sleep` and `wait` to prevent interleaving of file writes by parent and child processes.
-- **Synchronization Lock (Part 2):** Implements a locking mechanism using a lock file to ensure mutual exclusion during file writes, allowing safe concurrent processing.
-- **Command Line Interface:** Easy-to-use command line interface for executing the programs with customizable input parameters.
-- **Error Handling:** Includes basic error handling for process creation, synchronization functions, and file operations.
+- **Buffered I/O:** Efficient file handling with the ability to write to the beginning of files without losing existing content.
+- **Copy Directory Trees:** Easily copy entire directory trees, preserving file permissions and handling symbolic links.
+- **Customizable:** Modify and extend the library functions to suit your specific needs.
